@@ -111,6 +111,29 @@ describe('parseSystemPrompt()', () => {
     '</available_skills>',
   ].join('\n');
 
+  const currentSkillsBlock = [
+    '',
+    '',
+    '<skills>',
+    'The following skills provide specialized instructions for specific tasks.',
+    "Use the read tool to load a skill's file when the task matches its description.",
+    'When a skill file references a relative path, resolve it against the skill directory.',
+    '',
+    '<available_skills>',
+    '  <skill>',
+    '    <name>brainstorming</name>',
+    '    <description>Explore user intent before implementation.</description>',
+    '    <location>/home/user/skills/brainstorming/SKILL.md</location>',
+    '  </skill>',
+    '  <skill>',
+    '    <name>tdd</name>',
+    '    <description>Test-driven development workflow.</description>',
+    '    <location>/home/user/skills/tdd/SKILL.md</location>',
+    '  </skill>',
+    '</available_skills>',
+    '</skills>',
+  ].join('\n');
+
   const metadata =
     '\nCurrent date and time: Thursday, February 26, 2026\nCurrent working directory: /home/user/project';
   const currentMetadata =
@@ -276,6 +299,19 @@ describe('parseSystemPrompt()', () => {
       'SYSTEM.md / APPEND_SYSTEM.md',
     );
     expect(childTokenSum(contextSection)).toBe(contextSection?.tokens);
+    expect(sectionTokenSum(result)).toBe(result.totalTokens);
+  });
+
+  it('parses current pi <skills> tag wrapper into skills children', () => {
+    const prompt = basePrompt + currentProjectContextBlock + currentSkillsBlock + currentMetadata;
+    const result = parseSystemPrompt(prompt);
+    const skillsSection = result.sections.find((s) => s.label.startsWith('Skills'));
+
+    expect(skillsSection).toBeDefined();
+    expect(skillsSection?.label).toBe('Skills (2)');
+    expect(result.skills.map((skill) => skill.name)).toStrictEqual(['brainstorming', 'tdd']);
+    expect(result.skills.every((skill) => skill.tokens > 0)).toBe(true);
+    expect(childTokenSum(skillsSection)).toBe(skillsSection?.tokens);
     expect(sectionTokenSum(result)).toBe(result.totalTokens);
   });
 
