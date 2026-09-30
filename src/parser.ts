@@ -6,7 +6,8 @@
  *   2. Optional SYSTEM.md / APPEND_SYSTEM.md content
  *   3. Project Context (AGENTS.md files, each under `## <path>` or
  *      `<project_instructions path="...">`)
- *   4. Skills preamble + <available_skills> block
+ *   4. Skills preamble + <available_skills> block, optionally wrapped in
+ *      a `<skills>` tag
  *   5. Date/time + cwd metadata
  */
 
@@ -109,6 +110,21 @@ function findProjectContextStart(prompt: string): number {
   );
 }
 
+/**
+ * Find where the skills section starts.
+ *
+ * Current pi wraps the skills preamble in a `<skills>` tag and trims the
+ * leading blank line from the preamble text, so the literal bare-text match
+ * (`\n\nThe following skills...`) never occurs on its own; the `<skills>`
+ * tag itself is what's preceded by the section-joining blank line instead.
+ */
+function findSkillsSectionStart(prompt: string): number {
+  return firstPositive(
+    prompt.indexOf('\n\nThe following skills provide specialized instructions'),
+    prompt.indexOf('\n\n<skills>'),
+  );
+}
+
 function isPiContextFilePath(filePath: string): boolean {
   return /(?:^|\/)(?:AGENTS|CLAUDE)\.md$/i.test(filePath);
 }
@@ -196,12 +212,20 @@ function appendReconciliationChild(
 
 /** Compute the skills section end index, avoiding nested ternaries. */
 function findSkillsSectionEnd(
+  prompt: string,
   availableSkillsEnd: number,
   dateLineIdx: number,
   promptLength: number,
 ): number {
   if (availableSkillsEnd !== -1) {
-    return availableSkillsEnd + '</available_skills>'.length;
+    const afterAvailableSkills = availableSkillsEnd + '</available_skills>'.length;
+    // Current pi wraps the skills block in a `<skills>` tag immediately
+    // after `</available_skills>`; include it in the section span when present.
+    const closingSkillsTagIdx = prompt.indexOf('\n</skills>', afterAvailableSkills);
+    if (closingSkillsTagIdx === afterAvailableSkills) {
+      return closingSkillsTagIdx + '\n</skills>'.length;
+    }
+    return afterAvailableSkills;
   }
   if (dateLineIdx !== -1) {
     return dateLineIdx;
@@ -218,7 +242,8 @@ function findSkillsSectionEnd(
  *
  * Uses known structural markers emitted by `buildSystemPrompt()`:
  *   - `# Project Context` heading or `<project_context>` wrapper
- *   - `The following skills provide specialized instructions` preamble
+ *   - `The following skills provide specialized instructions` preamble,
+ *     bare or wrapped in a `<skills>` tag
  *   - `<available_skills>` / `</available_skills>` XML block
  *   - `Current date:` / `Current date and time:` footer
  */
@@ -227,9 +252,7 @@ export function parseSystemPrompt(prompt: string): ParsedPrompt {
   const skills: SkillEntry[] = [];
 
   const projectCtxIdx = findProjectContextStart(prompt);
-  const skillsPreambleIdx = prompt.indexOf(
-    '\n\nThe following skills provide specialized instructions',
-  );
+  const skillsPreambleIdx = findSkillsSectionStart(prompt);
   const availableSkillsStart = prompt.indexOf('<available_skills>');
   const availableSkillsEnd = prompt.indexOf('</available_skills>');
   const dateLineIdx = findMetadataStart(prompt);
@@ -299,7 +322,12 @@ export function parseSystemPrompt(prompt: string): ParsedPrompt {
   // 3. Skills section
   if (skillsPreambleIdx !== -1) {
     const skillsSectionStart = skillsPreambleIdx;
-    const skillsSectionEnd = findSkillsSectionEnd(availableSkillsEnd, dateLineIdx, prompt.length);
+    const skillsSectionEnd = findSkillsSectionEnd(
+      prompt,
+      availableSkillsEnd,
+      dateLineIdx,
+      prompt.length,
+    );
     const parsedSkillEntries: ParsedSkillEntry[] = [];
     if (availableSkillsStart !== -1 && availableSkillsEnd !== -1) {
       const xmlBlock = prompt.slice(
